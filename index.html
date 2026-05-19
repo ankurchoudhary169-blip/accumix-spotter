@@ -1131,11 +1131,11 @@ async function submitForm() {
   isSubmitting = true;
   const btn     = document.getElementById('submit-btn');
   const spinner = document.getElementById('submit-spinner');
-  btn.disabled = true;
+  btn.disabled  = true;
   spinner.style.display = 'block';
   btn.querySelector('span:nth-child(2)').textContent = 'Submitting…';
 
-  // ── BUILD LEAD DATA ──────────────────────────────────────
+  // ── BUILD LEAD DATA ──────────────────────────────────────────
   const leadId  = 'SPT-' + Date.now().toString(36).toUpperCase();
   const rmcSeen = document.querySelector('input[name="rmc-seen"]:checked');
   const stage   = document.querySelector('input[name="stage"]:checked');
@@ -1179,15 +1179,17 @@ async function submitForm() {
     otherBrandName:    otherBrand,
     comments:          '',
     daysActive:        '',
+    photoBase64:       ''
   };
 
-  // ── SAVE TO LOCALSTORAGE ─────────────────────────────────
-  const existing = JSON.parse(localStorage.getItem('accumix_leads') || '[]');
-  existing.push(leadData);
-  localStorage.setItem('accumix_leads', JSON.stringify(existing));
+  // ── SAVE TO LOCALSTORAGE (always, as permanent backup) ───────
+  try {
+    const existing = JSON.parse(localStorage.getItem('accumix_leads') || '[]');
+    existing.push(leadData);
+    localStorage.setItem('accumix_leads', JSON.stringify(existing));
+  } catch(e) {}
 
-  // ── FIRE WHATSAPP NOW (must be synchronous from user tap) ─
-  // Build the message text
+  // ── BUILD WHATSAPP MESSAGE TEXT ──────────────────────────────
   const waLines = [
     '🚧 *AccuMix Lead – ' + leadId + '*',
     '━━━━━━━━━━━━━━━━━━━━',
@@ -1200,89 +1202,76 @@ async function submitForm() {
     accuracy ? 'Accuracy: ' + accuracy : '',
     '',
     '🏗️ *Site Details*',
-    stage       ? 'Stage: '   + stage.value        : '',
-    size        ? 'Size: '    + size.value          : '',
-    projectType ? 'Type: '    + projectType         : '',
-    builderName ? 'Builder: ' + builderName         : '',
-    projectName ? 'Project: ' + projectName         : '',
+    stage       ? 'Stage: '   + stage.value   : '',
+    size        ? 'Size: '    + size.value    : '',
+    projectType ? 'Type: '    + projectType   : '',
+    builderName ? 'Builder: ' + builderName   : '',
+    projectName ? 'Project: ' + projectName   : '',
     '',
     '🚛 *RMC at Site:* ' + rmc + (otherBrand ? ' (' + otherBrand + ')' : ''),
     siteContact ? '📞 Site Contact: ' + siteContact + (sitePhone ? ' – ' + sitePhone : '') : '',
     '',
     '⏱ ' + new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
     '━━━━━━━━━━━━━━━━━━━━',
-    '_Note: Photo is being sent to Google Sheet separately._',
-  ].filter(function(l) { return l !== undefined; }).join('\n');
+    '_Submitted via AccuMix Staff Form_'
+  ].filter(function(l) { return l !== ''; }).join('\n');
 
   const waUrl = 'https://wa.me/918696137862?text=' + encodeURIComponent(waLines);
 
-  // ── STEP 1: CONVERT PHOTO TO BASE64 ─────────────────────────
-  let photoBase64 = '';
-  if (photoFile) {
-    photoBase64 = await new Promise(function(resolve) {
-      const reader = new FileReader();
-      reader.onload = function(e) { resolve(e.target.result); };
-      reader.readAsDataURL(photoFile);
-    });
-  }
-  leadData.photoBase64 = photoBase64;
-
-  // ── STEP 2: SEND TO SHEET (synchronous XHR — works on ALL browsers) ─
-  // XMLHttpRequest with async:false sends data SYNCHRONOUSLY before anything
-  // else happens. This guarantees the sheet gets the data regardless of what
-  // the browser does next (tab suspension, WhatsApp redirect, etc.)
-  // Photo is excluded from XHR (too large) — sent separately via Image beacon
-  const sheetPayload = JSON.stringify(Object.assign({}, leadData, { photoBase64: '' }));
-  try {
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', 'https://script.google.com/macros/s/AKfycbwwkUxVtlSiP_fVX1fMgDfK939LP9c9Q_deDV62bRYf2WO7wcH_w1c8nmX0L7Bl7SS3/exec', false);
-    xhr.setRequestHeader('Content-Type', 'application/json');
-    xhr.send(sheetPayload);
-  } catch(xhrErr) {
-    // XHR failed — try async fetch as fallback
-    try {
-      fetch('https://script.google.com/macros/s/AKfycbwwkUxVtlSiP_fVX1fMgDfK939LP9c9Q_deDV62bRYf2WO7wcH_w1c8nmX0L7Bl7SS3/exec', {
-        method: 'POST', mode: 'no-cors',
-        headers: { 'Content-Type': 'application/json' },
-        body: sheetPayload
-      });
-    } catch(e) { console.warn('Both XHR and fetch failed:', e); }
-  }
-
-  // ── STEP 3: SEND PHOTO SEPARATELY (async, non-blocking) ─────
-  if (photoBase64 && photoBase64.length > 100) {
-    const photoPayload = JSON.stringify({
-      leadId: leadData.leadId,
-      spotterName: leadData.spotterName,
-      photoBase64: photoBase64,
-      photoOnly: true
-    });
-    fetch('https://script.google.com/macros/s/AKfycbwwkUxVtlSiP_fVX1fMgDfK939LP9c9Q_deDV62bRYf2WO7wcH_w1c8nmX0L7Bl7SS3/exec', {
-      method: 'POST', mode: 'no-cors',
-      headers: { 'Content-Type': 'application/json' },
-      body: photoPayload
-    }).catch(function() {});
-  }
-
-  // ── STEP 4: SHOW SUCCESS SCREEN ─────────────────────────────
+  // ── SHOW SUCCESS SCREEN IMMEDIATELY ─────────────────────────
   spinner.style.display = 'none';
   isSubmitting = false;
+  btn.querySelector('span:nth-child(2)').textContent = 'Submit Lead';
   const ss = document.getElementById('success-screen');
   ss.style.display = 'flex';
   document.getElementById('lead-id-display').textContent = 'Lead ID: ' + leadId;
 
-  // ── STEP 5: OPEN WHATSAPP via anchor click (not window.open) ─
-  // Anchor click is NEVER blocked by popup blockers — works on all mobile browsers
-  // This fires AFTER data is already safely in the Sheet
-  const waLink = document.createElement('a');
-  waLink.href = waUrl;
-  waLink.target = '_blank';
-  waLink.rel = 'noopener';
-  document.body.appendChild(waLink);
-  waLink.click();
-  document.body.removeChild(waLink);
-}
+  // ── SEND TO SHEET + OPEN WHATSAPP TOGETHER ───────────────────
+  // Strategy: Image() beacon for Sheet (works even when tab loses focus)
+  // + direct href navigation for WhatsApp (never blocked on mobile)
+  const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx1W1Xoya4ZHsQ7joQE1_7reVwBPOW7igc3AhEdd-ZRAL-oF4bfs4gr9GGiKWIQHFbN/exec';
 
+  // Step A: Send lead data as URL params (GET request via Image beacon)
+  // This works even when the browser tab is suspended — image loads continue
+  const params = new URLSearchParams({
+    leadId:            leadData.leadId,
+    submittedAt:       leadData.submittedAt,
+    spotterName:       leadData.spotterName,
+    spotterMobile:     leadData.spotterMobile,
+    fleetId:           leadData.fleetId,
+    partnerType:       leadData.partnerType,
+    latitude:          leadData.latitude,
+    longitude:         leadData.longitude,
+    gpsAccuracy:       leadData.gpsAccuracy,
+    googleMapsLink:    leadData.googleMapsLink,
+    siteAddress:       leadData.siteAddress,
+    landmark:          leadData.landmark,
+    constructionStage: leadData.constructionStage,
+    projectSize:       leadData.projectSize,
+    projectType:       leadData.projectType,
+    builderName:       leadData.builderName,
+    projectName:       leadData.projectName,
+    rmcTrucksSeen:     leadData.rmcTrucksSeen,
+    otherBrandName:    leadData.otherBrandName,
+    method:            'GET'
+  });
+
+  // Fire image beacon — browser always completes this even after tab hides
+  const beacon = new Image();
+  beacon.src = SCRIPT_URL + '?' + params.toString();
+
+  // Also fire a POST fetch as backup
+  fetch(SCRIPT_URL, {
+    method:    'POST',
+    mode:      'no-cors',
+    headers:   { 'Content-Type': 'application/json' },
+    body:      JSON.stringify(Object.assign({}, leadData, { photoBase64: '' }))
+  }).catch(function() {});
+
+  // Step B: Open WhatsApp — use location.href so it's never blocked
+  // location.href navigation is always allowed on mobile (it's a normal page navigation)
+  location.href = waUrl;
+}
 // ── RESET ────────────────────────────────────────────────
 function resetForm() {
   gpsData = null;
