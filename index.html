@@ -1229,7 +1229,7 @@ async function submitForm() {
   // ── SEND TO SHEET + OPEN WHATSAPP TOGETHER ───────────────────
   // Strategy: Image() beacon for Sheet (works even when tab loses focus)
   // + direct href navigation for WhatsApp (never blocked on mobile)
-  const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx1W1Xoya4ZHsQ7joQE1_7reVwBPOW7igc3AhEdd-ZRAL-oF4bfs4gr9GGiKWIQHFbN/exec';
+  const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxB3gxUlmn5NlJ8pO477BiZfQziiA5progWI7mwJvHdcD4NY8Ci3pflJaDiQmIf14rE/exec';
 
   // ── STEP A: COMPRESS + CONVERT PHOTO ───────────────────────
   // Compress photo to max 800px before base64 encoding
@@ -1263,49 +1263,27 @@ async function submitForm() {
   }
   leadData.photoBase64 = photoBase64;
 
-  // ── STEP B: SEND FULL DATA (with photo) TO SHEET ─────────
-  // Use XMLHttpRequest with async=true + we WAIT for it using a Promise
-  // before doing anything else. This guarantees the Sheet receives both
-  // the lead data AND the photo before WhatsApp opens.
+  // ── STEP B: SEND DATA TO SHEET ───────────────────────────
+  // KEY FIX: Use text/plain content-type to avoid CORS preflight.
+  // This is the only method that works reliably with Google Apps Script
+  // from mobile browsers (no-cors + application/json gets blocked).
   await new Promise(function(resolve) {
     try {
       const xhr = new XMLHttpRequest();
-      xhr.open('POST', SCRIPT_URL, true);          // async = true (non-blocking)
-      xhr.setRequestHeader('Content-Type', 'application/json');
-      xhr.timeout = 15000;                         // 15 second timeout
+      xhr.open('POST', SCRIPT_URL, true);
+      // text/plain avoids CORS preflight — Apps Script receives this fine
+      xhr.setRequestHeader('Content-Type', 'text/plain;charset=utf-8');
+      xhr.timeout = 20000;
       xhr.onload    = function() { resolve('ok'); };
-      xhr.onerror   = function() { resolve('err'); };
+      xhr.onerror   = function() { resolve('error'); };
       xhr.ontimeout = function() { resolve('timeout'); };
+      // Send as text/plain — Apps Script reads via e.postData.contents
       xhr.send(JSON.stringify(leadData));
-    } catch(e) {
-      resolve('caught');
-    }
+    } catch(e) { resolve('catch'); }
   });
 
-  // ── STEP C: IMAGE BEACON AS EXTRA BACKUP (no photo) ──────
-  // Belt-and-suspenders: if XHR failed, beacon sends text data
-  const params = new URLSearchParams({
-    leadId:            leadData.leadId,
-    submittedAt:       leadData.submittedAt,
-    spotterName:       leadData.spotterName,
-    spotterMobile:     leadData.spotterMobile,
-    latitude:          leadData.latitude,
-    longitude:         leadData.longitude,
-    googleMapsLink:    leadData.googleMapsLink,
-    siteAddress:       leadData.siteAddress,
-    constructionStage: leadData.constructionStage,
-    projectSize:       leadData.projectSize,
-    projectType:       leadData.projectType,
-    builderName:       leadData.builderName,
-    rmcTrucksSeen:     leadData.rmcTrucksSeen,
-    method:            'GET'
-  });
-  const beacon = new Image();
-  beacon.src = SCRIPT_URL + '?' + params.toString();
-
-  // ── STEP D: OPEN WHATSAPP ─────────────────────────────────
-  // location.href is never blocked on any mobile browser
-  // Fires AFTER data is safely sent to Sheet
+  // ── STEP C: OPEN WHATSAPP ────────────────────────────────
+  // location.href = never blocked on any mobile browser
   location.href = waUrl;
 }
 // ── RESET ────────────────────────────────────────────────
